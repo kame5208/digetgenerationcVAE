@@ -1,11 +1,12 @@
 import streamlit as st
 import torch
 import torch.nn.functional as F
-import torchvision.transforms as transforms
-from PIL import Image
 from torch import nn
+import numpy as np
+import matplotlib.pyplot as plt
 
 # ===== モデル定義 =====
+
 class Encoder(nn.Module):
     def __init__(self, latent_dim=3, num_classes=10):
         super().__init__()
@@ -56,31 +57,36 @@ class CVAE(nn.Module):
         reconstructed = self.decoder(z, label)
         return reconstructed, mu, logvar
 
-# ===== Streamlit アプリ =====
+# ===== Streamlit UI =====
 
-st.title("CVAE 画像生成アプリ")
-st.write("指定した数字ラベル（0～9）から手書き数字画像を生成します。")
+st.title("CVAE による数字画像生成 (matplotlib表示)")
 
-# モデルロード
+# デバイス設定
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 @st.cache_resource
 def load_model(path="cvae_model.pth"):
-    model = CVAE(latent_dim=3)
-    model.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
+    model = CVAE()
+    model.load_state_dict(torch.load(path, map_location=device))
+    model.to(device)
     model.eval()
     return model
 
 model = load_model()
 
-# ユーザーが生成したい数字ラベルを選択
-label = st.selectbox("生成したい数字を選んでください (0〜9)", list(range(10)))
-generate_button = st.button("画像を生成")
+label = st.selectbox("生成する数字ラベル (0〜9)", list(range(10)))
 
-if generate_button:
-    label_tensor = torch.tensor([label])
-    # 標準正規分布から潜在変数をサンプリング
-    z = torch.randn(1, 3)
+if st.button("画像を生成"):
+    label_tensor = torch.tensor([label], dtype=torch.long).to(device)
+    z = torch.randn(1, 3).to(device)
+
     with torch.no_grad():
-        generated_image = model.decoder(z, label_tensor)
-    # PIL画像へ変換して表示
-    image = transforms.ToPILImage()(generated_image.squeeze(0))
-    st.image(image, caption=f"生成された画像 (ラベル: {label})", use_column_width=False)
+        generated = model.decoder(z, label_tensor).cpu().numpy()
+
+    image_array = generated[0][0]  # (1, 28, 28)
+
+    # Matplotlibで表示
+    fig, ax = plt.subplots()
+    ax.imshow(image_array, cmap="gray")
+    ax.axis("off")
+    st.pyplot(fig)
